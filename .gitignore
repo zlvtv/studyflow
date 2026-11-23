@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.db
+node_modules/
+dist/
+reports/
+.studyflow-runtime/
+backups/
+*.log
+.DS_Store
+docs/coursework.docx

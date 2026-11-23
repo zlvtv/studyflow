@@ -1,0 +1,70 @@
+# GitHub is the source repository. This pipeline is retained for the GitLab CI/CD requirement.
+# Import/mirror the repository into GitLab and register a dedicated shell runner.
+stages: [lint, test, build, deploy]
+default:
+  tags: [studyflow-course]
+variables:
+  IMAGE_PREFIX: studyflow-course
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+
+lint_backend:
+  stage: lint
+  script:
+    - docker build --target test -t studyflow-course/backend-check:$CI_COMMIT_SHA backend
+    - docker run --rm studyflow-course/backend-check:$CI_COMMIT_SHA ruff check .
+    - docker run --rm studyflow-course/backend-check:$CI_COMMIT_SHA ruff format --check .
+
+lint_frontend:
+  stage: lint
+  script:
+    - docker build --target test -f frontend/Dockerfile -t studyflow-course/frontend-check:$CI_COMMIT_SHA .
+    - docker run --rm studyflow-course/frontend-check:$CI_COMMIT_SHA npm run typecheck
+
+test_backend:
+  stage: test
+  script:
+    - bash infra/ci-backend.sh
+  artifacts:
+    when: always
+    reports:
+      junit: reports/pytest.xml
+    paths: [reports/]
+    expire_in: 14 days
+
+test_frontend:
+  stage: test
+  script:
+    - mkdir -p reports
+    - docker run --rm -v "$CI_PROJECT_DIR/reports:/app/reports" studyflow-course/frontend-check:$CI_COMMIT_SHA npm test
+  artifacts:
+    when: always
+    reports:
+      junit: reports/vitest.xml
+    paths: [reports/]
+    expire_in: 14 days
+
+test_deployment_scripts:
+  stage: test
+  script:
+    - docker run --rm -v "$CI_PROJECT_DIR:/src:ro" -w /src python:3.12-slim python -m unittest discover -s infra/tests -v
+
+build_images:
+  stage: build
+  script:
+    - APP_TAG=$CI_COMMIT_SHA docker compose --env-file "$STUDYFLOW_DEPLOY_DIR/.env" build --pull
+
+deploy_local:
+  stage: deploy
+  resource_group: studyflow-course-local
+  environment:
+    name: studyflow-local
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "merge_request_event"'
+  script:
+    - bash infra/deploy.sh "$CI_COMMIT_SHA"
